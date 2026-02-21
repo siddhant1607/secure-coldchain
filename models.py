@@ -12,3 +12,9 @@ class EventLog(db.Model):
     hash = db.Column(db.String(100), nullable=False)
     signature = db.Column(db.Text, nullable=False)
     eth_tx = db.Column(db.String(100), nullable=True)
+
+class Device(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    device_id = db.Column(db.String(50), unique=True, nullable=False)
+    public_key = db.Column(db.Text, nullable=False)
+    registered_at = db.Column(db.DateTime, default=db.func.now())

@@ -34,7 +34,19 @@ def receive_event():
 
     return jsonify({"status": "stored"}), 200
 
-@app.route("/init-db")
-def init_db():
-    db.create_all()
-    return "Database initialized"
+@app.route("/register-device", methods=["POST"])
+def register_device():
+    data = request.get_json()
+
+    device = Device(
+        device_id=data["device_id"],
+        public_key=data["public_key"]
+    )
+
+    db.session.add(device)
+    db.session.commit()
+
+    return jsonify({"status": "device registered"})
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
