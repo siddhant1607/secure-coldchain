@@ -262,5 +262,13 @@ def get_logs():
 
     return jsonify(output), 200
 
+@app.route("/debug-db")
+def debug_db():
+    from sqlalchemy import inspect
+    inspector = inspect(db.engine)
+    return {
+        "tables": inspector.get_table_names()
+    }
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
