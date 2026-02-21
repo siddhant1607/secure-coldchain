@@ -1,7 +1,7 @@
 import os
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
-from models import db, EventLog
+from models import db, EventLog, Device
 
 load_dotenv()
 
@@ -33,20 +33,6 @@ def receive_event():
     db.session.commit()
 
     return jsonify({"status": "stored"}), 200
-
-@app.route("/register-device", methods=["POST"])
-def register_device():
-    data = request.get_json()
-
-    device = Device(
-        device_id=data["device_id"],
-        public_key=data["public_key"]
-    )
-
-    db.session.add(device)
-    db.session.commit()
-
-    return jsonify({"status": "device registered"})
 
 @app.route("/register-device", methods=["POST"])
 def register_device():
