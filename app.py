@@ -223,6 +223,28 @@ def register_device():
 
     return jsonify({"status": "device registered"}), 200
 
+@app.route("/logs", methods=["GET"])
+def get_logs():
+    device_id = request.args.get("device_id")
+
+    logs = EventLog.query.filter_by(
+        device_id=device_id
+    ).order_by(EventLog.id.asc()).all()
+
+    output = []
+
+    for log in logs:
+        output.append({
+            "id": log.id,
+            "event": log.event,
+            "hash": log.hash,
+            "eth_tx": log.eth_tx,
+            "is_chain_valid": log.is_chain_valid,
+            "is_signature_valid": log.is_signature_valid,
+            "is_hash_valid": log.is_hash_valid
+        })
+
+    return jsonify(output), 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
