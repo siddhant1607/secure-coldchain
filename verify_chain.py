@@ -33,10 +33,7 @@ except Exception as e:
 if response.status_code != 200:
     raise Exception(f"❌ Backend error: {response.status_code}")
 
-try:
-    logs = response.json()
-except:
-    raise Exception("❌ Failed to parse backend response.")
+logs = response.json()
 
 if not logs:
     print("No logs found.")
@@ -79,32 +76,31 @@ for log in logs:
         try:
             tx_hash = log["eth_tx"]
 
-            # Ensure tx hash has 0x prefix
             if not tx_hash.startswith("0x"):
                 tx_hash = "0x" + tx_hash
 
             tx = w3.eth.get_transaction(tx_hash)
             onchain_input = tx["input"]
 
-            # Normalize onchain input to raw bytes
-            if hasattr(onchain_input, "hex"):  # Handles HexBytes
-                onchain_bytes = bytes.fromhex(onchain_input.hex()[2:])
-            elif isinstance(onchain_input, bytes):
+            # Normalize on-chain input to raw bytes safely
+            if isinstance(onchain_input, bytes):
                 onchain_bytes = onchain_input
+            elif hasattr(onchain_input, "hex"):  # HexBytes
+                onchain_bytes = bytes(onchain_input)
             elif isinstance(onchain_input, str):
-                onchain_bytes = bytes.fromhex(onchain_input[2:])
+                onchain_bytes = bytes.fromhex(onchain_input.replace("0x", ""))
             else:
-                raise Exception(f"Unexpected type for input: {type(onchain_input)}")
+                raise Exception(f"Unexpected input type: {type(onchain_input)}")
 
             # Normalize stored hash
-            stored_bytes = bytes.fromhex(log["hash"][2:])
+            stored_bytes = bytes.fromhex(log["hash"].replace("0x", ""))
 
             if onchain_bytes == stored_bytes:
                 print("Blockchain Check: ✅ MATCH")
             else:
                 print("Blockchain Check: ❌ MISMATCH")
-                print("On-chain Input :", onchain_bytes.hex())
-                print("Expected Hash  :", stored_bytes.hex())
+                print("On-chain :", onchain_bytes.hex())
+                print("Expected :", stored_bytes.hex())
                 overall_chain_valid = False
 
             print(f"TX Hash: {tx_hash}")
@@ -120,7 +116,7 @@ for log in logs:
 
     print("\n--------------------------------------------\n")
 
-    # Only extend chain if backend marked it valid
+    # Extend chain only if backend validated it
     if log["is_chain_valid"]:
         previous_hash = log["hash"]
 
