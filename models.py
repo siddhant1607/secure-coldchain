@@ -12,6 +12,7 @@ class EventLog(db.Model):
     hash = db.Column(db.String(100), nullable=False)
     signature = db.Column(db.Text, nullable=False)
     eth_tx = db.Column(db.String(100), nullable=True)
+    is_signature_valid = db.Column(db.Boolean, default=False)
 
 class Device(db.Model):
     id = db.Column(db.Integer, primary_key=True)
