@@ -3,7 +3,7 @@ from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 from models import db, EventLog
 
-load_dotenv(dotenv_path=".env")
+load_dotenv()
 
 app = Flask(__name__)
 
@@ -11,7 +11,6 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db.init_app(app)
-
 
 @app.route("/")
 def home():
@@ -26,7 +25,8 @@ def receive_event():
         sequence=data["sequence"],
         event=data["event"],
         hash=data["hash"],
-        signature=data["signature"]
+        signature=data["signature"],
+        eth_tx=data.get("eth_tx")
     )
 
     db.session.add(log)
@@ -34,5 +34,7 @@ def receive_event():
 
     return jsonify({"status": "stored"}), 200
 
-if __name__ == "__main__":
-    app.run()
+@app.route("/init-db")
+def init_db():
+    db.create_all()
+    return "Database initialized"
