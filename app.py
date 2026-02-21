@@ -48,5 +48,26 @@ def register_device():
 
     return jsonify({"status": "device registered"})
 
+@app.route("/register-device", methods=["POST"])
+def register_device():
+    data = request.get_json()
+
+    device_id = data["device_id"]
+    public_key = data["public_key"]
+
+    existing = Device.query.filter_by(device_id=device_id).first()
+    if existing:
+        return jsonify({"error": "Device already exists"}), 400
+
+    new_device = Device(
+        device_id=device_id,
+        public_key=public_key
+    )
+
+    db.session.add(new_device)
+    db.session.commit()
+
+    return jsonify({"status": "device registered"})
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
