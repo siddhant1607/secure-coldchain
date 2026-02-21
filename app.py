@@ -10,6 +10,8 @@ from cryptography.hazmat.primitives.serialization import load_pem_public_key
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric import utils
 
+from web3 import Web3
+
 load_dotenv()
 
 app = Flask(__name__)
@@ -18,20 +20,25 @@ app = Flask(__name__)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-    "pool_pre_ping": True,
-    "pool_recycle": 300
-}
 
 db.init_app(app)
 
 with app.app_context():
     db.create_all()
 
-# ================= HELPERS =================
-
 GENESIS_HASH = "GENESIS"
 
+# ================= ETHEREUM SETUP =================
+
+w3 = Web3(Web3.HTTPProvider(os.getenv("INFURA_URL")))
+
+PRIVATE_KEY = os.getenv("ANCHOR_PRIVATE_KEY")
+ACCOUNT = w3.eth.account.from_key(PRIVATE_KEY)
+
+CHAIN_ID = 11155111  # Sepolia
+
+
+# ================= HELPERS =================
 
 def verify_signature(public_key_pem, hash_hex, signature_hex):
     try:
@@ -61,12 +68,40 @@ def recompute_hash(event_string, previous_hash):
     return "0x" + digest
 
 
+def get_last_valid_hash(device_id):
+    last_valid_log = (
+        EventLog.query
+        .filter_by(device_id=device_id, is_chain_valid=True)
+        .order_by(EventLog.id.desc())
+        .first()
+    )
+
+    return last_valid_log.hash if last_valid_log else GENESIS_HASH
+
+
+def anchor_hash_to_eth(event_hash):
+    try:
+        tx = {
+            "to": ACCOUNT.address,
+            "value": 0,
+            "data": w3.to_bytes(hexstr=event_hash),
+            "gas": 200000,
+            "gasPrice": w3.to_wei("5", "gwei"),
+            "nonce": w3.eth.get_transaction_count(ACCOUNT.address),
+            "chainId": CHAIN_ID
+        }
+
+        signed_tx = ACCOUNT.sign_transaction(tx)
+        tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+
+        return tx_hash.hex()
+
+    except Exception as e:
+        print("Anchoring failed:", e)
+        return None
+
+
 # ================= ROUTES =================
-
-@app.route("/")
-def home():
-    return "Backend Running"
-
 
 @app.route("/event", methods=["POST"])
 def receive_event():
@@ -81,25 +116,24 @@ def receive_event():
         return jsonify({"error": "Missing fields"}), 400
 
     device = Device.query.filter_by(device_id=device_id).first()
-
     if not device:
         return jsonify({"error": "Unknown device"}), 400
 
-    # Get last VALID chain anchor
-    last_valid_log = (
-        EventLog.query
-        .filter_by(device_id=device_id, is_chain_valid=True)
-        .order_by(EventLog.id.desc())
-        .first()
-    )
+    # Prevent replay
+    existing = EventLog.query.filter_by(
+        device_id=device_id,
+        hash=incoming_hash
+    ).first()
 
-    previous_hash = last_valid_log.hash if last_valid_log else GENESIS_HASH
+    if existing:
+        return jsonify({"accepted": False, "reason": "Duplicate"}), 400
 
-    # Recompute hash server-side
+    # Chain validation
+    previous_hash = get_last_valid_hash(device_id)
     recomputed_hash = recompute_hash(event, previous_hash)
-    is_hash_valid = recomputed_hash == incoming_hash
 
-    # Verify signature against recomputed hash
+    is_hash_valid = (recomputed_hash == incoming_hash)
+
     is_signature_valid = verify_signature(
         device.public_key,
         recomputed_hash,
@@ -108,20 +142,17 @@ def receive_event():
 
     is_chain_valid = is_hash_valid and is_signature_valid
 
-    # Prevent duplicate replay
-    existing = EventLog.query.filter_by(
-        device_id=device_id,
-        hash=incoming_hash
-    ).first()
+    eth_tx = None
 
-    if existing:
-        return jsonify({"error": "Duplicate event"}), 400
+    if is_chain_valid:
+        eth_tx = anchor_hash_to_eth(incoming_hash)
 
     log = EventLog(
         device_id=device_id,
         event=event,
         hash=incoming_hash,
         signature=signature,
+        eth_tx=eth_tx,
         is_signature_valid=is_signature_valid,
         is_hash_valid=is_hash_valid,
         is_chain_valid=is_chain_valid
@@ -131,36 +162,21 @@ def receive_event():
     db.session.commit()
 
     return jsonify({
-        "stored": True,
-        "hash_valid": is_hash_valid,
-        "signature_valid": is_signature_valid,
-        "chain_valid": is_chain_valid
+        "accepted": is_chain_valid,
+        "eth_tx": eth_tx
     }), 200
 
 
-@app.route("/register-device", methods=["POST"])
-def register_device():
-    data = request.get_json()
+@app.route("/sync", methods=["GET"])
+def sync_device():
+    device_id = request.args.get("device_id")
 
-    device_id = data.get("device_id")
-    public_key = data.get("public_key")
+    if not device_id:
+        return jsonify({"error": "Missing device_id"}), 400
 
-    if not device_id or not public_key:
-        return jsonify({"error": "Missing fields"}), 400
+    last_hash = get_last_valid_hash(device_id)
 
-    existing = Device.query.filter_by(device_id=device_id).first()
-    if existing:
-        return jsonify({"error": "Device already exists"}), 400
-
-    new_device = Device(
-        device_id=device_id,
-        public_key=public_key
-    )
-
-    db.session.add(new_device)
-    db.session.commit()
-
-    return jsonify({"status": "device registered"}), 200
+    return jsonify({"last_hash": last_hash}), 200
 
 
 if __name__ == "__main__":

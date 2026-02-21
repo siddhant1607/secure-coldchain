@@ -27,6 +27,8 @@ class EventLog(db.Model):
 
 
 class Device(db.Model):
+    __tablename__ = "devices"
+
     id = db.Column(db.Integer, primary_key=True)
 
     device_id = db.Column(db.String(50), unique=True, nullable=False)
