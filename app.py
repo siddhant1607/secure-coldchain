@@ -223,6 +223,22 @@ def register_device():
 
     return jsonify({"status": "device registered"}), 200
 
+@app.route("/device/<device_id>", methods=["GET"])
+def check_device(device_id):
+    device = Device.query.filter_by(device_id=device_id).first()
+
+    if device:
+        return jsonify({
+            "exists": True,
+            "device_id": device_id,
+            "registered_at": device.registered_at
+        }), 200
+
+    return jsonify({
+        "exists": False,
+        "device_id": device_id
+    }), 404
+
 @app.route("/logs", methods=["GET"])
 def get_logs():
     device_id = request.args.get("device_id")
