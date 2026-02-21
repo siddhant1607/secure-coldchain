@@ -53,7 +53,7 @@ for log in logs:
     print(f"Event: {log['event']}")
     print(f"Stored Hash: {log['hash']}")
 
-    # -------- Recompute Chain Hash --------
+    # -------- Recompute Hash Chain --------
     payload = f"{log['event']}|PREV={previous_hash}"
     recomputed_hash = "0x" + hashlib.sha256(payload.encode()).hexdigest()
 
@@ -86,13 +86,25 @@ for log in logs:
             tx = w3.eth.get_transaction(tx_hash)
             onchain_input = tx["input"]
 
-            # Compare raw bytes (NOT strings)
-            if bytes.fromhex(onchain_input[2:]) == bytes.fromhex(log["hash"][2:]):
+            # Normalize onchain input to raw bytes
+            if hasattr(onchain_input, "hex"):  # Handles HexBytes
+                onchain_bytes = bytes.fromhex(onchain_input.hex()[2:])
+            elif isinstance(onchain_input, bytes):
+                onchain_bytes = onchain_input
+            elif isinstance(onchain_input, str):
+                onchain_bytes = bytes.fromhex(onchain_input[2:])
+            else:
+                raise Exception(f"Unexpected type for input: {type(onchain_input)}")
+
+            # Normalize stored hash
+            stored_bytes = bytes.fromhex(log["hash"][2:])
+
+            if onchain_bytes == stored_bytes:
                 print("Blockchain Check: ✅ MATCH")
             else:
                 print("Blockchain Check: ❌ MISMATCH")
-                print("On-chain Input :", onchain_input)
-                print("Expected Hash  :", log["hash"])
+                print("On-chain Input :", onchain_bytes.hex())
+                print("Expected Hash  :", stored_bytes.hex())
                 overall_chain_valid = False
 
             print(f"TX Hash: {tx_hash}")
