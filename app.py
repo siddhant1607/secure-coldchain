@@ -55,5 +55,11 @@ def register_device():
 
     return jsonify({"status": "device registered"})
 
+@app.route("/init-db")
+def init_db():
+    with app.app_context():
+        db.create_all()
+    return "Database initialized"
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
