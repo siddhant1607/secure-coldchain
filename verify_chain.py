@@ -53,7 +53,7 @@ for log in logs:
     print(f"Event: {log['event']}")
     print(f"Stored Hash: {log['hash']}")
 
-    # -------- Recompute Hash --------
+    # -------- Recompute Chain Hash --------
     payload = f"{log['event']}|PREV={previous_hash}"
     recomputed_hash = "0x" + hashlib.sha256(payload.encode()).hexdigest()
 
@@ -77,17 +77,26 @@ for log in logs:
     if log.get("eth_tx"):
 
         try:
-            tx = w3.eth.get_transaction(log["eth_tx"])
+            tx_hash = log["eth_tx"]
+
+            # Ensure tx hash has 0x prefix
+            if not tx_hash.startswith("0x"):
+                tx_hash = "0x" + tx_hash
+
+            tx = w3.eth.get_transaction(tx_hash)
             onchain_input = tx["input"]
 
-            if onchain_input.lower() == log["hash"].lower():
+            # Compare raw bytes (NOT strings)
+            if bytes.fromhex(onchain_input[2:]) == bytes.fromhex(log["hash"][2:]):
                 print("Blockchain Check: ✅ MATCH")
             else:
                 print("Blockchain Check: ❌ MISMATCH")
+                print("On-chain Input :", onchain_input)
+                print("Expected Hash  :", log["hash"])
                 overall_chain_valid = False
 
-            print(f"TX Hash: {log['eth_tx']}")
-            print(f"Etherscan: https://sepolia.etherscan.io/tx/{log['eth_tx']}")
+            print(f"TX Hash: {tx_hash}")
+            print(f"Etherscan: https://sepolia.etherscan.io/tx/{tx_hash}")
 
         except Exception as e:
             print("Blockchain Check: ❌ ERROR FETCHING TX")
