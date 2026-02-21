@@ -7,15 +7,22 @@ load_dotenv()
 
 app = Flask(__name__)
 
+# ================= DATABASE CONFIG =================
+
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "pool_pre_ping": True,     # 🔥 Fixes SSL idle disconnect issue
+    "pool_recycle": 300        # Recycle connections every 5 mins
+}
 
 db.init_app(app)
 
-# 🔥 CREATE TABLES ON STARTUP (FIXES YOUR ERROR)
+# 🔥 Create tables automatically on startup
 with app.app_context():
     db.create_all()
 
+# ================= ROUTES =================
 
 @app.route("/")
 def home():
@@ -62,6 +69,8 @@ def register_device():
 
     return jsonify({"status": "device registered"}), 200
 
+
+# ================= LOCAL RUN =================
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
