@@ -2,6 +2,7 @@ from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()
 
+
 class EventLog(db.Model):
     __tablename__ = "event_logs"
 
@@ -14,6 +15,7 @@ class EventLog(db.Model):
     signature = db.Column(db.Text, nullable=False)
 
     eth_tx = db.Column(db.String(100), nullable=True)
+    is_anchored = db.Column(db.Boolean, default=False)
 
     is_signature_valid = db.Column(db.Boolean, default=False)
     is_hash_valid = db.Column(db.Boolean, default=False)

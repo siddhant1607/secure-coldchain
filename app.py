@@ -12,11 +12,11 @@ from cryptography.hazmat.primitives.asymmetric import utils
 
 from web3 import Web3
 
+# ================= INIT =================
+
 load_dotenv()
 
 app = Flask(__name__)
-
-# ================= DATABASE CONFIG =================
 
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -30,15 +30,16 @@ GENESIS_HASH = "GENESIS"
 
 # ================= ETHEREUM SETUP =================
 
-w3 = Web3(Web3.HTTPProvider(os.getenv("INFURA_URL")))
-
+INFURA_URL = os.getenv("INFURA_URL")
 PRIVATE_KEY = os.getenv("ANCHOR_PRIVATE_KEY")
+
+w3 = Web3(Web3.HTTPProvider(INFURA_URL))
 ACCOUNT = w3.eth.account.from_key(PRIVATE_KEY)
 
 CHAIN_ID = 11155111  # Sepolia
 
 
-# ================= HELPERS =================
+# ================= HELPER FUNCTIONS =================
 
 def verify_signature(public_key_pem, hash_hex, signature_hex):
     try:
@@ -58,7 +59,7 @@ def verify_signature(public_key_pem, hash_hex, signature_hex):
     except InvalidSignature:
         return False
     except Exception as e:
-        print("Verification error:", e)
+        print("Signature verification error:", e)
         return False
 
 
@@ -103,6 +104,28 @@ def anchor_hash_to_eth(event_hash):
 
 # ================= ROUTES =================
 
+@app.route("/")
+def home():
+    return "Backend Running"
+
+
+# 🔁 Sync endpoint (for device reboot recovery)
+@app.route("/sync", methods=["GET"])
+def sync_device():
+    device_id = request.args.get("device_id")
+
+    if not device_id:
+        return jsonify({"error": "Missing device_id"}), 400
+
+    device = Device.query.filter_by(device_id=device_id).first()
+    if not device:
+        return jsonify({"error": "Unknown device"}), 400
+
+    last_hash = get_last_valid_hash(device_id)
+
+    return jsonify({"last_hash": last_hash}), 200
+
+
 @app.route("/event", methods=["POST"])
 def receive_event():
     data = request.get_json()
@@ -119,16 +142,19 @@ def receive_event():
     if not device:
         return jsonify({"error": "Unknown device"}), 400
 
-    # Prevent replay
+    # 🔒 Replay protection
     existing = EventLog.query.filter_by(
         device_id=device_id,
         hash=incoming_hash
     ).first()
 
     if existing:
-        return jsonify({"accepted": False, "reason": "Duplicate"}), 400
+        return jsonify({
+            "accepted": False,
+            "reason": "Duplicate event"
+        }), 400
 
-    # Chain validation
+    # 🔗 Chain validation
     previous_hash = get_last_valid_hash(device_id)
     recomputed_hash = recompute_hash(event, previous_hash)
 
@@ -143,16 +169,21 @@ def receive_event():
     is_chain_valid = is_hash_valid and is_signature_valid
 
     eth_tx = None
+    is_anchored = False
 
     if is_chain_valid:
         eth_tx = anchor_hash_to_eth(incoming_hash)
+        if eth_tx:
+            is_anchored = True
 
+    # 📝 Store log
     log = EventLog(
         device_id=device_id,
         event=event,
         hash=incoming_hash,
         signature=signature,
         eth_tx=eth_tx,
+        is_anchored=is_anchored,
         is_signature_valid=is_signature_valid,
         is_hash_valid=is_hash_valid,
         is_chain_valid=is_chain_valid
@@ -163,20 +194,34 @@ def receive_event():
 
     return jsonify({
         "accepted": is_chain_valid,
+        "anchored": is_anchored,
         "eth_tx": eth_tx
     }), 200
 
 
-@app.route("/sync", methods=["GET"])
-def sync_device():
-    device_id = request.args.get("device_id")
+@app.route("/register-device", methods=["POST"])
+def register_device():
+    data = request.get_json()
 
-    if not device_id:
-        return jsonify({"error": "Missing device_id"}), 400
+    device_id = data.get("device_id")
+    public_key = data.get("public_key")
 
-    last_hash = get_last_valid_hash(device_id)
+    if not device_id or not public_key:
+        return jsonify({"error": "Missing fields"}), 400
 
-    return jsonify({"last_hash": last_hash}), 200
+    existing = Device.query.filter_by(device_id=device_id).first()
+    if existing:
+        return jsonify({"error": "Device already exists"}), 400
+
+    new_device = Device(
+        device_id=device_id,
+        public_key=public_key
+    )
+
+    db.session.add(new_device)
+    db.session.commit()
+
+    return jsonify({"status": "device registered"}), 200
 
 
 if __name__ == "__main__":
