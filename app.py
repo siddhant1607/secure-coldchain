@@ -38,6 +38,7 @@ ACCOUNT = w3.eth.account.from_key(PRIVATE_KEY)
 
 CHAIN_ID = 11155111  # Sepolia
 
+
 # ================= SIGNATURE HELPERS =================
 
 def verify_signature_raw(public_key_pem, message_bytes, signature_hex):
@@ -45,6 +46,7 @@ def verify_signature_raw(public_key_pem, message_bytes, signature_hex):
         signature_bytes = bytes.fromhex(signature_hex.replace("0x", ""))
         public_key = load_pem_public_key(public_key_pem.encode())
 
+        # RAW message — library hashes internally
         public_key.verify(
             signature_bytes,
             message_bytes,
@@ -98,7 +100,7 @@ def get_last_valid_hash(device_id):
     return last_valid_log.hash if last_valid_log else GENESIS_HASH
 
 
-# ================= BLOCKCHAIN ANCHOR =================
+# ================= BLOCKCHAIN =================
 
 def anchor_payload(payload_dict):
     try:
@@ -146,7 +148,8 @@ def device_register():
     if not all([device_id, public_key, signature]):
         return jsonify({"error": "Missing fields"}), 400
 
-    message = hashlib.sha256((device_id + public_key).encode()).digest()
+    # IMPORTANT: Verify raw message (no manual SHA256)
+    message = (device_id + public_key).encode()
 
     if not verify_signature_raw(public_key, message, signature):
         return jsonify({"error": "Invalid registration signature"}), 400
