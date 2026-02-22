@@ -148,23 +148,32 @@ def device_register():
     if not all([device_id, public_key, signature]):
         return jsonify({"error": "Missing fields"}), 400
 
-    # IMPORTANT: Verify raw message (no manual SHA256)
-    message = (device_id + public_key).encode()
+    # Canonicalize public key
+    normalized_pub = public_key.strip().replace("\r", "")
 
-    if not verify_signature_raw(public_key, message, signature):
+    # Canonical JSON message (deterministic)
+    message_dict = {
+        "device_id": device_id.strip(),
+        "public_key": normalized_pub
+    }
+
+    message_json = json.dumps(message_dict, sort_keys=True)
+    message_bytes = message_json.encode()
+
+    if not verify_signature_raw(normalized_pub, message_bytes, signature):
         return jsonify({"error": "Invalid registration signature"}), 400
 
     if Device.query.filter_by(device_id=device_id).first():
         return jsonify({"error": "Device already registered"}), 400
 
-    new_device = Device(device_id=device_id, public_key=public_key)
+    new_device = Device(device_id=device_id, public_key=normalized_pub)
     db.session.add(new_device)
     db.session.commit()
 
     tx_hash = anchor_payload({
         "type": "DEVICE_REGISTRATION",
         "device_id": device_id,
-        "public_key": public_key
+        "public_key": normalized_pub
     })
 
     return jsonify({
