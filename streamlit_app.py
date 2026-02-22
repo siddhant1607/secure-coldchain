@@ -6,163 +6,121 @@ from web3 import Web3
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
-from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric import utils
 
-# ================= CONFIG =================
-
+# CONFIG
 BACKEND_URL = "https://secure-coldchain.onrender.com"
-INFURA_URL = "https://sepolia.infura.io/v3/YOUR_INFURA_KEY"
+INFURA_URL = "https://sepolia.infura.io/v3/YOUR_REAL_INFURA_KEY"
 
 w3 = Web3(Web3.HTTPProvider(INFURA_URL))
-
 GENESIS_HASH = "GENESIS"
 
-# ================= UI SETUP =================
+st.set_page_config(layout="wide")
+st.title("🔐 Secure Cold Chain Audit")
 
-st.set_page_config(page_title="Cold Chain Audit Dashboard", layout="wide")
-st.title("🔐 Secure Cold Chain - Audit Dashboard")
-
-# ================= FETCH DEVICES =================
-
-try:
-    devices_res = requests.get(f"{BACKEND_URL}/device/ESP32_SIM")
-except:
-    st.error("Backend not reachable.")
-    st.stop()
-
-device_id = st.text_input("Enter Device ID", value="ESP32_SIM")
+device_id = st.text_input("Enter Device ID")
 
 if not device_id:
     st.stop()
 
-# ================= FETCH LOGS =================
-
-try:
-    response = requests.get(
-        f"{BACKEND_URL}/logs",
-        params={"device_id": device_id},
-        timeout=10
-    )
-except Exception as e:
-    st.error(f"Backend error: {e}")
-    st.stop()
-
-if response.status_code != 200:
+# Fetch logs
+res = requests.get(f"{BACKEND_URL}/logs", params={"device_id": device_id})
+if res.status_code != 200:
     st.error("Failed to fetch logs.")
     st.stop()
 
-logs = response.json()
-
+logs = res.json()
 if not logs:
-    st.warning("No logs found for this device.")
+    st.warning("No logs found.")
     st.stop()
 
-# ================= METRICS =================
+# Fetch public key
+device_res = requests.get(f"{BACKEND_URL}/device/{device_id}")
+if device_res.status_code != 200:
+    st.error("Device not found.")
+    st.stop()
 
-total_events = len(logs)
-total_violations = len([l for l in logs if l["event"].startswith("TEMP_VIOLATION")])
-total_tampered = len([l for l in logs if not l["is_chain_valid"]])
+public_key = device_res.json()["public_key"]
 
-col1, col2, col3 = st.columns(3)
-col1.metric("Total Events", total_events)
-col2.metric("Total Violations", total_violations)
-col3.metric("Tampered Events", total_tampered)
+# Metrics
+total = len(logs)
+violations = len([l for l in logs if l["event"].startswith("TEMP_VIOLATION")])
+tampered = len([l for l in logs if not l["is_chain_valid"]])
+
+c1, c2, c3 = st.columns(3)
+c1.metric("Total Events", total)
+c2.metric("Violations", violations)
+c3.metric("Tampered", tampered)
 
 st.divider()
 
-# ================= VERIFICATION FUNCTION =================
+def verify_log(log, index):
 
-def verify_event(log):
+    result = {"chain": True, "signature": True, "blockchain": True, "reason": []}
 
-    result = {
-        "chain": True,
-        "signature": True,
-        "blockchain": True,
-        "reason": []
-    }
+    # Chain
+    prev = GENESIS_HASH if index == 0 else logs[index-1]["hash"]
+    recomputed = "0x" + hashlib.sha256(
+        f"{log['event']}|PREV={prev}".encode()
+    ).hexdigest()
 
-    # 1️⃣ Chain recompute
-    index = logs.index(log)
-    previous_hash = GENESIS_HASH if index == 0 else logs[index - 1]["hash"]
-
-    payload = f"{log['event']}|PREV={previous_hash}"
-    recomputed_hash = "0x" + hashlib.sha256(payload.encode()).hexdigest()
-
-    if recomputed_hash != log["hash"]:
+    if recomputed != log["hash"]:
         result["chain"] = False
         result["reason"].append("Chain mismatch")
 
-    # 2️⃣ Signature verify
+    # Signature
     try:
-        device_info = requests.get(f"{BACKEND_URL}/device/{device_id}").json()
-        public_key = device_info.get("public_key")
+        hash_bytes = bytes.fromhex(log["hash"].replace("0x", ""))
+        sig_bytes = bytes.fromhex(log["signature"].replace("0x", ""))
 
-        if public_key:
-            hash_bytes = bytes.fromhex(log["hash"].replace("0x", ""))
-            signature_bytes = bytes.fromhex(log["signature"].replace("0x", ""))
-
-            public_key_obj = load_pem_public_key(public_key.encode())
-
-            public_key_obj.verify(
-                signature_bytes,
-                hash_bytes,
-                ec.ECDSA(utils.Prehashed(hashes.SHA256()))
-            )
-        else:
-            raise Exception("Public key not found")
-
+        pub = load_pem_public_key(public_key.encode())
+        pub.verify(sig_bytes, hash_bytes,
+                   ec.ECDSA(utils.Prehashed(hashes.SHA256())))
     except Exception:
         result["signature"] = False
         result["reason"].append("Signature invalid")
 
-    # 3️⃣ Blockchain verify (only if anchored)
+    # Blockchain (violations only)
     if log.get("eth_tx"):
         try:
-            tx_hash = log["eth_tx"]
-            if not tx_hash.startswith("0x"):
-                tx_hash = "0x" + tx_hash
-
-            tx = w3.eth.get_transaction(tx_hash)
-
+            tx = w3.eth.get_transaction(log["eth_tx"])
             raw_input = tx["input"]
-            raw_bytes = bytes.fromhex(raw_input.replace("0x", ""))
-            decoded = raw_bytes.decode("utf-8")
 
-            payload_on_chain = json.loads(decoded)
+            if hasattr(raw_input, "hex"):
+                raw_bytes = bytes(raw_input)
+            elif isinstance(raw_input, str):
+                raw_bytes = bytes.fromhex(raw_input.replace("0x",""))
+            else:
+                raw_bytes = raw_input
 
-            if payload_on_chain.get("device_hash") != log["hash"]:
+            decoded = raw_bytes.decode()
+            payload = json.loads(decoded)
+
+            if payload.get("device_hash") != log["hash"]:
                 result["blockchain"] = False
-                result["reason"].append("Blockchain hash mismatch")
+                result["reason"].append("Blockchain mismatch")
 
-        except Exception:
+        except Exception as e:
             result["blockchain"] = False
-            result["reason"].append("Blockchain verification failed")
+            result["reason"].append(f"Blockchain error: {str(e)}")
 
     return result
 
-# ================= TABLE DISPLAY =================
 
-for log in logs:
+for i, log in enumerate(logs):
 
-    with st.expander(f"Log ID {log['id']} - {log['event']}"):
+    with st.expander(f"Log {log['id']} — {log['event']}"):
 
-        st.write("**Event:**", log["event"])
-        st.write("**Hash:**", log["hash"])
-        st.write("**Anchored:**", log.get("is_anchored"))
+        st.write("Hash:", log["hash"])
+        st.write("Anchored:", log["is_anchored"])
 
-        verify_btn = st.button(f"Verify Log {log['id']}")
+        if log["event"].startswith("TEMP_VIOLATION"):
+            if st.button(f"Verify {log['id']}"):
+                v = verify_log(log, i)
 
-        if verify_btn:
-            verification = verify_event(log)
-
-            if all([
-                verification["chain"],
-                verification["signature"],
-                verification["blockchain"]
-            ]):
-                st.success("✅ Fully Verified")
-            else:
-                st.error("❌ Verification Failed")
-                for r in verification["reason"]:
-                    st.write("-", r)
+                if all(v.values()):
+                    st.success("✅ Fully Verified")
+                else:
+                    st.error("❌ Verification Failed")
+                    for r in v["reason"]:
+                        st.write("-", r)
