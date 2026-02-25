@@ -6,12 +6,12 @@ from dotenv import load_dotenv
 from models import db, EventLog, Device
 
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import ec, utils
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
 from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives.asymmetric import utils
 
 from web3 import Web3
+
 
 # ================= INIT =================
 
@@ -28,6 +28,7 @@ with app.app_context():
 
 GENESIS_HASH = "GENESIS"
 
+
 # ================= ETHEREUM =================
 
 INFURA_URL = os.getenv("INFURA_URL")
@@ -41,38 +42,23 @@ CHAIN_ID = 11155111  # Sepolia
 
 # ================= SIGNATURE HELPERS =================
 
-def verify_signature_raw(public_key_pem, message_bytes, signature_hex):
+def verify_prehashed_signature(public_key_pem, digest_bytes, signature_hex):
+    """
+    Verifies ECDSA signature where digest is already SHA256(message)
+    """
     try:
-        signature_bytes = bytes.fromhex(signature_hex.replace("0x", ""))
-        public_key = load_pem_public_key(public_key_pem.encode())
+        normalized_pub = public_key_pem.replace("\r", "").strip()
 
-        # RAW message — library hashes internally
-        public_key.verify(
-            signature_bytes,
-            message_bytes,
-            ec.ECDSA(hashes.SHA256())
-        )
-        return True
-
-    except InvalidSignature:
-        return False
-    except Exception as e:
-        print("Signature verification error:", e)
-        return False
-
-
-def verify_signature_hash(public_key_pem, hash_hex, signature_hex):
-    try:
-        hash_bytes = bytes.fromhex(hash_hex.replace("0x", ""))
         signature_bytes = bytes.fromhex(signature_hex.replace("0x", ""))
 
-        public_key = load_pem_public_key(public_key_pem.encode())
+        public_key = load_pem_public_key(normalized_pub.encode())
 
         public_key.verify(
             signature_bytes,
-            hash_bytes,
+            digest_bytes,
             ec.ECDSA(utils.Prehashed(hashes.SHA256()))
         )
+
         return True
 
     except InvalidSignature:
@@ -80,6 +66,39 @@ def verify_signature_hash(public_key_pem, hash_hex, signature_hex):
     except Exception as e:
         print("Signature verification error:", e)
         return False
+
+
+def verify_registration(device_id, public_key_pem, signature_hex):
+    """
+    Registration uses:
+    digest = SHA256(device_id + public_key)
+    """
+    # Restore real newlines
+    public_key_pem = public_key_pem.replace("\\n", "\n")
+
+    normalized_pub = public_key_pem.replace("\r", "").strip()
+
+    message = (device_id.strip() + normalized_pub).encode()
+    digest = hashlib.sha256(message).digest()
+
+    return verify_prehashed_signature(
+        normalized_pub,
+        digest,
+        signature_hex
+    )
+
+
+def verify_event_signature(public_key_pem, hash_hex, signature_hex):
+    """
+    Event signature verifies prehashed event hash
+    """
+    hash_bytes = bytes.fromhex(hash_hex.replace("0x", ""))
+
+    return verify_prehashed_signature(
+        public_key_pem,
+        hash_bytes,
+        signature_hex
+    )
 
 
 # ================= HASH CHAIN =================
@@ -148,73 +167,23 @@ def device_register():
     if not all([device_id, public_key, signature]):
         return jsonify({"error": "Missing fields"}), 400
 
-    # Normalize public key
-    normalized_pub = public_key.replace("\r", "").strip()
-
-    # IMPORTANT: message = device_id + raw PEM
-    message = (device_id.strip() + normalized_pub).encode()
-
-    if not verify_signature_raw(normalized_pub, message, signature):
+    if not verify_registration(device_id, public_key, signature):
         return jsonify({"error": "Invalid registration signature"}), 400
 
     if Device.query.filter_by(device_id=device_id).first():
         return jsonify({"error": "Device already registered"}), 400
 
-    new_device = Device(device_id=device_id, public_key=normalized_pub)
+    public_key = public_key.replace("\\n", "\n")
+
+    new_device = Device(
+        device_id=device_id,
+        public_key=public_key
+    )
+
     db.session.add(new_device)
     db.session.commit()
 
-    tx_hash = anchor_payload({
-        "type": "DEVICE_REGISTRATION",
-        "device_id": device_id,
-        "public_key": normalized_pub
-    })
-
-    return jsonify({
-        "status": "registered",
-        "anchored_tx": tx_hash
-    }), 200
-    data = request.get_json()
-
-    device_id = data.get("device_id")
-    public_key = data.get("public_key")
-    signature = data.get("signature")
-
-    if not all([device_id, public_key, signature]):
-        return jsonify({"error": "Missing fields"}), 400
-
-    # Canonicalize public key
-    normalized_pub = public_key.strip().replace("\r", "")
-
-    # Canonical JSON message (deterministic)
-    message_dict = {
-        "device_id": device_id.strip(),
-        "public_key": normalized_pub
-    }
-
-    message_json = json.dumps(message_dict, sort_keys=True)
-    message_bytes = message_json.encode()
-
-    if not verify_signature_raw(normalized_pub, message_bytes, signature):
-        return jsonify({"error": "Invalid registration signature"}), 400
-
-    if Device.query.filter_by(device_id=device_id).first():
-        return jsonify({"error": "Device already registered"}), 400
-
-    new_device = Device(device_id=device_id, public_key=normalized_pub)
-    db.session.add(new_device)
-    db.session.commit()
-
-    tx_hash = anchor_payload({
-        "type": "DEVICE_REGISTRATION",
-        "device_id": device_id,
-        "public_key": normalized_pub
-    })
-
-    return jsonify({
-        "status": "registered",
-        "anchored_tx": tx_hash
-    }), 200
+    return jsonify({"status": "registered"}), 200
 
 
 # -------- DEVICE INFO --------
@@ -233,23 +202,6 @@ def get_device(device_id):
         "public_key": device.public_key,
         "registered_at": device.registered_at
     }), 200
-
-
-# -------- SYNC --------
-
-@app.route("/sync", methods=["GET"])
-def sync_device():
-
-    device_id = request.args.get("device_id")
-
-    if not device_id:
-        return jsonify({"error": "Missing device_id"}), 400
-
-    if not Device.query.filter_by(device_id=device_id).first():
-        return jsonify({"error": "Unknown device"}), 400
-
-    last_hash = get_last_valid_hash(device_id)
-    return jsonify({"last_hash": last_hash}), 200
 
 
 # -------- EVENT --------
@@ -278,7 +230,8 @@ def receive_event():
     recomputed_hash = recompute_hash(event, previous_hash)
 
     is_hash_valid = (recomputed_hash == incoming_hash)
-    is_signature_valid = verify_signature_hash(
+
+    is_signature_valid = verify_event_signature(
         device.public_key,
         recomputed_hash,
         signature
@@ -286,27 +239,13 @@ def receive_event():
 
     is_chain_valid = is_hash_valid and is_signature_valid
 
-    eth_tx = None
-    is_anchored = False
-
-    if event.startswith("TEMP_VIOLATION") and is_signature_valid:
-        eth_tx = anchor_payload({
-            "type": "VIOLATION",
-            "device_id": device_id,
-            "event": event,
-            "device_hash": incoming_hash,
-            "signature": signature
-        })
-        if eth_tx:
-            is_anchored = True
-
     log = EventLog(
         device_id=device_id,
         event=event,
         hash=incoming_hash,
         signature=signature,
-        eth_tx=eth_tx,
-        is_anchored=is_anchored,
+        eth_tx=None,
+        is_anchored=False,
         is_signature_valid=is_signature_valid,
         is_hash_valid=is_hash_valid,
         is_chain_valid=is_chain_valid
@@ -316,32 +255,10 @@ def receive_event():
     db.session.commit()
 
     return jsonify({
-        "accepted": is_chain_valid,
-        "anchored": is_anchored,
-        "eth_tx": eth_tx
+        "accepted": is_chain_valid
     }), 200
 
 
-# -------- FETCH LOGS --------
-
-@app.route("/logs", methods=["GET"])
-def get_logs():
-
-    device_id = request.args.get("device_id")
-
-    logs = EventLog.query.filter_by(device_id=device_id)\
-        .order_by(EventLog.id.asc()).all()
-
-    return jsonify([
-        {
-            "id": l.id,
-            "event": l.event,
-            "hash": l.hash,
-            "signature": l.signature,
-            "eth_tx": l.eth_tx,
-            "is_chain_valid": l.is_chain_valid,
-            "is_signature_valid": l.is_signature_valid,
-            "is_hash_valid": l.is_hash_valid,
-            "is_anchored": l.is_anchored
-        } for l in logs
-    ])
+if __name__ == "__main__":
+    print("RUNNING FLASK...")
+    app.run(host="0.0.0.0", port=5000, debug=True)
