@@ -41,7 +41,7 @@ ACCOUNT = w3.eth.account.from_key(PRIVATE_KEY)
 CHAIN_ID = 11155111  # Sepolia
 
 
-# ================= SIGNATURE VERIFY =================
+# ================= SIGNATURE HELPERS =================
 
 def verify_prehashed_signature(public_key_pem, digest_bytes, signature_hex):
     try:
@@ -55,6 +55,7 @@ def verify_prehashed_signature(public_key_pem, digest_bytes, signature_hex):
         )
 
         return True
+
     except InvalidSignature:
         return False
     except Exception as e:
@@ -63,6 +64,10 @@ def verify_prehashed_signature(public_key_pem, digest_bytes, signature_hex):
 
 
 def verify_registration(device_id, public_key_pem, signature_hex):
+    """
+    Registration digest:
+    SHA256(device_id + public_key_raw_with_newlines)
+    """
     public_key_pem = public_key_pem.replace("\\n", "\n")
 
     message = (device_id + public_key_pem).encode()
@@ -76,6 +81,9 @@ def verify_registration(device_id, public_key_pem, signature_hex):
 
 
 def verify_event_signature(public_key_pem, hash_hex, signature_hex):
+    """
+    Event signature verifies the 32-byte event hash
+    """
     hash_bytes = bytes.fromhex(hash_hex.replace("0x", ""))
 
     return verify_prehashed_signature(
@@ -83,6 +91,7 @@ def verify_event_signature(public_key_pem, hash_hex, signature_hex):
         hash_bytes,
         signature_hex
     )
+
 
 # ================= HASH CHAIN =================
 
@@ -138,6 +147,7 @@ def home():
 
 
 # -------- DEVICE REGISTER --------
+
 @app.route("/register-device", methods=["POST"])
 def register_device():
 
@@ -220,7 +230,7 @@ def receive_event():
 
     is_hash_valid = (recomputed_hash == incoming_hash)
 
-    is_signature_valid = verify_signature(
+    is_signature_valid = verify_event_signature(
         device.public_key,
         recomputed_hash,
         signature
@@ -232,7 +242,7 @@ def receive_event():
     is_anchored = False
 
     # 🔥 ONLY anchor violations
-    if event.startswith("TEMP_VIOLATION") and is_chain_valid:
+    if is_chain_valid and event.startswith("TEMP_VIOLATION"):
 
         violation_payload = {
             "type": "VIOLATION",
@@ -247,7 +257,7 @@ def receive_event():
         if eth_tx:
             is_anchored = True
 
-    # Store log
+    # Store log (ALL events stored)
     log = EventLog(
         device_id=device_id,
         event=event,
