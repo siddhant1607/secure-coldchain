@@ -43,27 +43,46 @@ CHAIN_ID = 11155111  # Sepolia
 
 # ================= SIGNATURE VERIFY =================
 
-def verify_signature(public_key_pem, hash_hex, signature_hex):
+def verify_prehashed_signature(public_key_pem, digest_bytes, signature_hex):
     try:
-        hash_bytes = bytes.fromhex(hash_hex.replace("0x", ""))
         signature_bytes = bytes.fromhex(signature_hex.replace("0x", ""))
-
         public_key = load_pem_public_key(public_key_pem.encode())
 
         public_key.verify(
             signature_bytes,
-            hash_bytes,
+            digest_bytes,
             ec.ECDSA(utils.Prehashed(hashes.SHA256()))
         )
 
         return True
-
     except InvalidSignature:
         return False
     except Exception as e:
         print("Signature verification error:", e)
         return False
 
+
+def verify_registration(device_id, public_key_pem, signature_hex):
+    public_key_pem = public_key_pem.replace("\\n", "\n")
+
+    message = (device_id + public_key_pem).encode()
+    digest = hashlib.sha256(message).digest()
+
+    return verify_prehashed_signature(
+        public_key_pem,
+        digest,
+        signature_hex
+    )
+
+
+def verify_event_signature(public_key_pem, hash_hex, signature_hex):
+    hash_bytes = bytes.fromhex(hash_hex.replace("0x", ""))
+
+    return verify_prehashed_signature(
+        public_key_pem,
+        hash_bytes,
+        signature_hex
+    )
 
 # ================= HASH CHAIN =================
 
@@ -119,8 +138,6 @@ def home():
 
 
 # -------- DEVICE REGISTER --------
-# (Simple. No signature verification.)
-
 @app.route("/register-device", methods=["POST"])
 def register_device():
 
@@ -128,12 +145,18 @@ def register_device():
 
     device_id = data.get("device_id")
     public_key = data.get("public_key")
+    signature = data.get("signature")
 
-    if not device_id or not public_key:
+    if not all([device_id, public_key, signature]):
         return jsonify({"error": "Missing fields"}), 400
+
+    if not verify_registration(device_id, public_key, signature):
+        return jsonify({"error": "Invalid registration signature"}), 400
 
     if Device.query.filter_by(device_id=device_id).first():
         return jsonify({"error": "Device already exists"}), 400
+
+    public_key = public_key.replace("\\n", "\n")
 
     new_device = Device(
         device_id=device_id,
