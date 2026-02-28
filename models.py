@@ -35,5 +35,5 @@ class Device(db.Model):
 
     device_id = db.Column(db.String(50), unique=True, nullable=False)
     public_key = db.Column(db.Text, nullable=False)
-
+    registration_tx = db.Column(db.String, nullable=True)
     registered_at = db.Column(db.DateTime, default=db.func.now())

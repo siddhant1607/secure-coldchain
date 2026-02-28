@@ -168,16 +168,28 @@ def register_device():
 
     public_key = public_key.replace("\\n", "\n")
 
+    # 🔥 Added anchoring block (ONLY addition)
+    registration_payload = {
+        "type": "DEVICE_REGISTRATION",
+        "device_id": device_id,
+        "public_key": public_key
+    }
+
+    eth_tx = anchor_violation(registration_payload)
+
     new_device = Device(
         device_id=device_id,
-        public_key=public_key
+        public_key=public_key,
+        registration_tx=eth_tx   # <-- ONLY structural DB addition
     )
 
     db.session.add(new_device)
     db.session.commit()
 
-    return jsonify({"status": "device registered"}), 200
-
+    return jsonify({
+        "status": "device registered",
+        "eth_tx": eth_tx          # <-- response expanded
+    }), 200
 
 # -------- SYNC --------
 
