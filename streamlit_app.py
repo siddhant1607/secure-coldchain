@@ -6,6 +6,10 @@ import plotly.express as px
 from datetime import datetime, timedelta
 import json
 import time
+import warnings
+
+# Suppress warnings
+warnings.filterwarnings('ignore')
 
 # ================= CONFIG =================
 
@@ -62,16 +66,41 @@ st.markdown("""
 
 # ================= HELPER FUNCTIONS =================
 
+def check_backend_health():
+    """Check if backend is awake and responsive"""
+    try:
+        response = requests.get(f"{BACKEND_URL}/", timeout=5)
+        return response.status_code == 200
+    except:
+        return False
+
+def wake_backend():
+    """Wake up the backend if it's sleeping (Render cold start)"""
+    with st.spinner("🔄 Waking up backend (this may take 30-60 seconds on first load)..."):
+        try:
+            response = requests.get(f"{BACKEND_URL}/", timeout=90)
+            if response.status_code == 200:
+                st.success("✅ Backend is online!")
+                return True
+        except Exception as e:
+            st.error(f"❌ Could not connect to backend: {str(e)}")
+            return False
+    return False
+
 def fetch_logs(device_id):
     """Fetch all logs for a device"""
     try:
+        # Increased timeout for Render cold starts
         response = requests.get(
             f"{BACKEND_URL}/logs",
             params={"device_id": device_id},
-            timeout=10
+            timeout=60  # Increased from 10 to 60 seconds
         )
         if response.status_code == 200:
             return response.json()
+        return []
+    except requests.exceptions.Timeout:
+        st.warning("⏳ Backend is waking up (Render cold start)... Please wait and refresh.")
         return []
     except Exception as e:
         st.error(f"Error fetching logs: {str(e)}")
@@ -264,6 +293,14 @@ with st.sidebar:
 if auto_refresh:
     time.sleep(10)
     st.rerun()
+
+# Check backend health first
+if not check_backend_health():
+    st.warning("⚠️ Backend is sleeping (Render free tier). Attempting to wake it up...")
+    if not wake_backend():
+        st.error("❌ Could not connect to backend. Please try again in a moment.")
+        st.info("💡 Tip: Render free tier apps sleep after 15 minutes of inactivity and take ~30-60s to wake up.")
+        st.stop()
 
 # Fetch data
 with st.spinner(f"Loading data for {device_id}..."):
