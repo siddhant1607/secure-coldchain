@@ -768,26 +768,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-## 📞 Support
-
-For issues and questions:
-- **GitHub Issues**: [Create an issue](https://github.com/yourusername/secure-coldchain/issues)
-- **Email**: support@yourproject.com
-- **Documentation**: [Wiki](https://github.com/yourusername/secure-coldchain/wiki)
-
----
-
-## 🗺️ Roadmap
-
-- [ ] Add GPS location tracking
-- [ ] Implement multi-device dashboard
-- [ ] Add SMS/email alerts for violations
-- [ ] Support for Polygon/Ethereum mainnet
-- [ ] Mobile app (React Native)
-- [ ] Machine learning anomaly detection
-- [ ] PDF report generation
-- [ ] Multi-language support
-
----
-
 **Built with ❤️ for supply chain integrity**
