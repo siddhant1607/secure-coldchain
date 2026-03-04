@@ -99,7 +99,7 @@ String getTimestamp() {
 
   if (!rtcAvailable) return "NO_RTC";
 
-  DateTime now = rtc.now();
+  DateTime now = rtc.now() + TimeSpan(0,0,0,12);
 
   char buffer[25];
 
@@ -631,7 +631,7 @@ void loop() {
       lastViolationTemp = temp;
     }
 
-    /* ---- HUMIDITY VIOLATION ---- */
+    /* ---- HUM VIOLATION ---- */
 
     if (hum > HUM_MAX || hum < HUM_MIN) {
 
