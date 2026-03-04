@@ -99,7 +99,7 @@ String getTimestamp() {
 
   if (!rtcAvailable) return "NO_RTC";
 
-  DateTime now = rtc.now() + TimeSpan(0,0,0,12);
+  DateTime now = rtc.now() + TimeSpan(0,0,0,0); //Set Time Offset according to the RTC Calibration 
 
   char buffer[25];
 
