@@ -1,6 +1,6 @@
 # 🧊 Secure Cold Chain Monitor
 
-A blockchain-anchored IoT system for tamper-proof monitoring of temperature-sensitive supply chains using ESP32, cryptographic hash chains, and Ethereum for violation anchoring.
+A blockchain anchored IoT system for tamper-proof monitoring of temperature sensitive medical supply chains using ESP32, cryptographic hash chains, and Ethereum for violation anchoring.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.8+-green.svg)
