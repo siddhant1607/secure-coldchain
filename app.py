@@ -147,7 +147,6 @@ def home():
 
 
 # -------- DEVICE REGISTER --------
-
 @app.route("/register-device", methods=["POST"])
 def register_device():
 
@@ -156,9 +155,16 @@ def register_device():
     device_id = data.get("device_id")
     public_key = data.get("public_key")
     signature = data.get("signature")
+    password = data.get("password")  # NEW
 
-    if not all([device_id, public_key, signature]):
+    REGISTER_PASSWORD = os.getenv("REGISTER_PASSWORD")  # NEW
+
+    if not all([device_id, public_key, signature, password]):  # password added
         return jsonify({"error": "Missing fields"}), 400
+
+    # NEW PASSWORD CHECK
+    if password != REGISTER_PASSWORD:
+        return jsonify({"error": "Unauthorized device registration"}), 403
 
     if not verify_registration(device_id, public_key, signature):
         return jsonify({"error": "Invalid registration signature"}), 400
@@ -168,7 +174,7 @@ def register_device():
 
     public_key = public_key.replace("\\n", "\n")
 
-    # 🔥 Added anchoring block (ONLY addition)
+    # 🔥 Anchoring block (unchanged)
     registration_payload = {
         "type": "DEVICE_REGISTRATION",
         "device_id": device_id,
@@ -180,7 +186,7 @@ def register_device():
     new_device = Device(
         device_id=device_id,
         public_key=public_key,
-        registration_tx=eth_tx   # <-- ONLY structural DB addition
+        registration_tx=eth_tx
     )
 
     db.session.add(new_device)
@@ -188,7 +194,7 @@ def register_device():
 
     return jsonify({
         "status": "device registered",
-        "eth_tx": eth_tx          # <-- response expanded
+        "eth_tx": eth_tx
     }), 200
 
 # -------- SYNC --------
@@ -216,13 +222,13 @@ def sync_device():
 def receive_event():
 
     data = request.get_json()
-
     device_id = data.get("device_id")
     event = data.get("event")
+    event_type = data.get("type")
     incoming_hash = data.get("hash")
     signature = data.get("signature")
 
-    if not all([device_id, event, incoming_hash, signature]):
+    if not all([device_id, event, incoming_hash, signature,event_type]):
         return jsonify({"error": "Missing fields"}), 400
 
     device = Device.query.filter_by(device_id=device_id).first()
@@ -254,7 +260,7 @@ def receive_event():
     is_anchored = False
 
     # 🔥 ONLY anchor violations
-    if is_chain_valid and event.startswith("TEMP_VIOLATION"):
+    if is_chain_valid and event_type == "EVENT_VIOLATION":
 
         violation_payload = {
             "type": "VIOLATION",
@@ -273,6 +279,7 @@ def receive_event():
     log = EventLog(
         device_id=device_id,
         event=event,
+        event_type=event_type,   # ADD THIS
         hash=incoming_hash,
         signature=signature,
         eth_tx=eth_tx,
@@ -306,6 +313,7 @@ def get_logs():
         {
             "id": l.id,
             "event": l.event,
+            "event_type": l.event_type,
             "hash": l.hash,
             "signature": l.signature,
             "eth_tx": l.eth_tx,

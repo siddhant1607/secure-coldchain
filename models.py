@@ -10,6 +10,7 @@ class EventLog(db.Model):
 
     device_id = db.Column(db.String(50), nullable=False, index=True)
     event = db.Column(db.Text, nullable=False)
+    event_type = db.Column(db.String(20))  # NEW COLUMN
 
     hash = db.Column(db.String(100), nullable=False)
     signature = db.Column(db.Text, nullable=False)
