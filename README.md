@@ -2,7 +2,6 @@
 
 A blockchain anchored IoT system for tamper-proof monitoring of temperature sensitive medical supply chains using ESP32, cryptographic hash chains, and Ethereum for violation anchoring.
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.8+-green.svg)
 ![Flask](https://img.shields.io/badge/flask-3.1-red.svg)
 ![ESP32](https://img.shields.io/badge/ESP32-Arduino-00979D.svg)
@@ -749,12 +748,6 @@ flake8 .
 - **C++**: Follow Arduino style guide
 - **Comments**: Document complex logic
 - **Tests**: Add tests for new features
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
